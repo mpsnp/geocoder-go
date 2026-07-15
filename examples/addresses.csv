@@ -1,0 +1,4 @@
+source,source_id,kind,name,house_number,street,postcode,locality,region,country_code,lat,lon,importance
+example,at-1,address,,1,Stephansplatz,1010,Wien,Wien,AT,48.20849,16.37208,1
+example,at-2,place,Vienna International Airport,,Flughafen Wien,1300,Schwechat,Niederösterreich,AT,48.11028,16.56972,0.95
+example,de-1,address,,1,Platz der Republik,10557,Berlin,Berlin,DE,52.51862,13.37620,1

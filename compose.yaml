@@ -1,0 +1,16 @@
+services:
+  geocoder:
+    image: ghcr.io/gametec-live/geocoder-go:latest
+    build:
+      context: .
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped

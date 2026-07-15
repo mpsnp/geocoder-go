@@ -1,0 +1,14 @@
+.git
+.github
+bin
+data
+docs
+examples
+web
+*.md
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*

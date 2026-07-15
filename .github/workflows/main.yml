@@ -1,0 +1,68 @@
+name: Main binary builds
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: main-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build binaries
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          output="dist/geocoder-go-${GOOS}-${GOARCH}"
+          extension=""
+          if [[ "$GOOS" == "windows" ]]; then
+            extension=".exe"
+          fi
+
+          mkdir -p "$output"
+          version="main-${GITHUB_SHA::7}"
+          build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          server_ldflags="-s -w -X main.version=$version -X main.commit=$GITHUB_SHA -X main.buildDate=$build_date"
+
+          go build -buildvcs=false -trimpath -tags netgo,osusergo \
+            -ldflags="$server_ldflags" \
+            -o "$output/geocoder$extension" ./cmd/server
+          go build -buildvcs=false -trimpath \
+            -ldflags="-s -w" \
+            -o "$output/packgen$extension" ./cmd/packgen
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: geocoder-go-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/geocoder-go-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 14

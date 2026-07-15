@@ -1,0 +1,15 @@
+/bin/
+/data/*
+!/data/.gitkeep
+*.exe
+*.test
+coverage.out
+coverage.html
+*.log
+.idea/
+.vscode/
+.DS_Store
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
