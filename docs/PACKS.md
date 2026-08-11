@@ -58,10 +58,11 @@ The importer makes two PBF passes. It imports tagged addresses, named
 localities, selected named POIs, and named roads. Selected ways are represented
 by their node-average centroid. OSM relations are currently ignored.
 
-The second pass keeps IDs for selected way nodes in build-machine memory. In
-the observed Austria build, conversion peaked near 9.4 GB RAM, produced
-3,339,626 records including 515,957 roads, and finalized to roughly 1.45 GiB.
-These figures describe one source snapshot, not fixed requirements.
+PBF staging tables and index builds use temporary disk space. The second pass
+uses an in-memory filter capped at 256 MiB to select coordinates for way
+centroids, so RAM use does not grow without limit on large extracts. Ensure the
+build machine has enough free temporary-disk space in addition to space for the
+output pack.
 
 Use country or regional extracts rather than a continental PBF when possible.
 

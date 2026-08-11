@@ -21,14 +21,21 @@ func importPBF(ctx context.Context, builder *pack.Builder, path string, options 
 	if options.Source == "" {
 		options.Source = sourceName(path, options)
 	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	// Compressed PBF size is a useful sizing heuristic for the filter. An
+	// undersized filter only stages more unused coordinates; it cannot lose data.
+	needed := newNodeFilter(max(1, fileInfo.Size()/24))
+	var referenceCount int64
 	tx := builder.Tx()
 	if tx == nil {
 		return fmt.Errorf("pack builder transaction is not active")
 	}
 	if _, err := tx.ExecContext(ctx, `
 CREATE TEMP TABLE osm_ways(id INTEGER PRIMARY KEY, tags TEXT NOT NULL);
-CREATE TEMP TABLE osm_way_nodes(way_id INTEGER NOT NULL, sequence INTEGER NOT NULL, node_id INTEGER NOT NULL);
-CREATE INDEX osm_way_nodes_node ON osm_way_nodes(node_id);
+CREATE TEMP TABLE osm_way_nodes(way_id INTEGER NOT NULL, node_id INTEGER NOT NULL);
 CREATE TEMP TABLE osm_node_coords(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);`); err != nil {
 		return fmt.Errorf("create PBF staging tables: %w", err)
 	}
@@ -37,7 +44,7 @@ CREATE TEMP TABLE osm_node_coords(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon
 		return err
 	}
 	defer func() { _ = wayInsert.Close() }()
-	refInsert, err := tx.PrepareContext(ctx, `INSERT INTO osm_way_nodes(way_id,sequence,node_id) VALUES(?,?,?)`)
+	refInsert, err := tx.PrepareContext(ctx, `INSERT INTO osm_way_nodes(way_id,node_id) VALUES(?,?)`)
 	if err != nil {
 		return err
 	}
@@ -59,10 +66,12 @@ CREATE TEMP TABLE osm_node_coords(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon
 			if _, err := wayInsert.ExecContext(ctx, object.ID, string(tags)); err != nil {
 				return err
 			}
-			for sequence, nodeID := range object.NodeIDs {
-				if _, err := refInsert.ExecContext(ctx, object.ID, sequence, nodeID); err != nil {
+			for _, nodeID := range object.NodeIDs {
+				if _, err := refInsert.ExecContext(ctx, object.ID, nodeID); err != nil {
 					return err
 				}
+				needed.Add(nodeID)
+				referenceCount++
 			}
 		}
 		return nil
@@ -70,24 +79,11 @@ CREATE TEMP TABLE osm_node_coords(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon
 		return fmt.Errorf("first PBF pass: %w", err)
 	}
 
-	needed := make(map[int64]struct{})
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT node_id FROM osm_way_nodes`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		needed[id] = struct{}{}
-	}
-	if err := rows.Close(); err != nil {
+	if err := refInsert.Close(); err != nil {
 		return err
 	}
 	if options.Logf != nil {
-		options.Logf("PBF second pass needs coordinates for %d way nodes", len(needed))
+		options.Logf("PBF second pass filter contains %d way node references", referenceCount)
 	}
 	coordInsert, err := tx.PrepareContext(ctx, `INSERT INTO osm_node_coords(id,lat,lon) VALUES(?,?,?)`)
 	if err != nil {
@@ -98,7 +94,7 @@ CREATE TEMP TABLE osm_node_coords(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon
 		if !ok {
 			return nil
 		}
-		if _, ok := needed[node.ID]; !ok {
+		if !needed.Contains(node.ID) {
 			return nil
 		}
 		_, err := coordInsert.ExecContext(ctx, node.ID, node.Lat, node.Lon)
@@ -144,6 +140,67 @@ GROUP BY w.id,w.tags`)
 	}
 	_, err = tx.ExecContext(ctx, `DROP TABLE osm_node_coords; DROP TABLE osm_way_nodes; DROP TABLE osm_ways;`)
 	return err
+}
+
+const (
+	nodeFilterBlockWords = 8 // One cache line per block.
+	nodeFilterBitsPerID  = 12
+	maxNodeFilterBytes   = 256 << 20
+)
+
+// nodeFilter is a bounded-memory Bloom filter. False positives only add unused
+// coordinates to the staging table; false negatives, which would affect way
+// centroids, are not possible.
+type nodeFilter struct {
+	words     []uint64
+	blockMask uint64
+}
+
+func newNodeFilter(items int64) *nodeFilter {
+	blocksNeeded := uint64(max(1, items*nodeFilterBitsPerID/(nodeFilterBlockWords*64)))
+	maxBlocks := uint64(maxNodeFilterBytes / (nodeFilterBlockWords * 8))
+	blocks := uint64(1)
+	for blocks < blocksNeeded && blocks < maxBlocks {
+		blocks <<= 1
+	}
+	return &nodeFilter{
+		words:     make([]uint64, blocks*nodeFilterBlockWords),
+		blockMask: blocks - 1,
+	}
+}
+
+func (filter *nodeFilter) Add(id int64) {
+	filter.update(id, true)
+}
+
+func (filter *nodeFilter) Contains(id int64) bool {
+	return filter.update(id, false)
+}
+
+func (filter *nodeFilter) update(id int64, add bool) bool {
+	hash := mixNodeID(uint64(id))
+	block := ((hash >> 32) & filter.blockMask) * nodeFilterBlockWords
+	positions := [4]uint64{hash, hash >> 13, hash >> 26, hash >> 39}
+	found := true
+	for _, position := range positions {
+		bit := position & 511
+		word := block + bit/64
+		mask := uint64(1) << (bit & 63)
+		if filter.words[word]&mask == 0 {
+			found = false
+			if add {
+				filter.words[word] |= mask
+			}
+		}
+	}
+	return found
+}
+
+func mixNodeID(value uint64) uint64 {
+	value += 0x9e3779b97f4a7c15
+	value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9
+	value = (value ^ (value >> 27)) * 0x94d049bb133111eb
+	return value ^ (value >> 31)
 }
 
 func decodePBF(path string, consume func(any) error, options Options) error {

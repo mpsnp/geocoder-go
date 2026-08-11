@@ -3,7 +3,9 @@ package pack
 const createBaseSchema = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
-PRAGMA temp_store = MEMORY;
+-- Imports can stage hundreds of millions of rows. Keep temporary tables and
+-- index builds on disk so pack generation has bounded memory use.
+PRAGMA temp_store = FILE;
 
 CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
