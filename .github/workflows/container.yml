@@ -98,8 +98,8 @@ jobs:
             BUILD_DATE=${{ steps.build-time.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
+          provenance: false
+          sbom: false
 
       - name: Attest published image
         if: github.event_name != 'pull_request'
