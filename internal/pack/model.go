@@ -126,5 +126,16 @@ func Normalize(value string) string {
 			space = true
 		}
 	}
-	return strings.TrimSpace(b.String())
+	tokens := strings.Fields(b.String())
+	for i, token := range tokens {
+		switch token {
+		case "жк":
+			tokens[i] = "жилои комплекс" // The preceding diacritic fold also maps й to и.
+		case "ул":
+			tokens[i] = "улица"
+		case "просп":
+			tokens[i] = "проспект"
+		}
+	}
+	return strings.Join(tokens, " ")
 }

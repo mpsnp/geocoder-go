@@ -240,6 +240,9 @@ func shouldImportOSM(tags map[string]string, includeRoads bool) bool {
 		return true
 	}
 	if tags["name"] != "" {
+		if tags["landuse"] == "residential" {
+			return true
+		}
 		for _, key := range []string{"amenity", "shop", "tourism", "leisure", "aeroway", "railway", "public_transport", "office", "healthcare", "historic"} {
 			if tags[key] != "" {
 				return true
@@ -255,7 +258,7 @@ func osmRecord(tags map[string]string, lat, lon float64, objectType string, id i
 	switch {
 	case tags["addr:housenumber"] != "" || tags["addr:street"] != "":
 		kind, importance = "address", 1
-	case tags["place"] != "":
+	case isSettlement(tags["place"]):
 		kind, importance = "locality", localityImportance(tags["place"])
 	case isNamedPOI(tags):
 		kind, importance = "place", 0.4
@@ -312,5 +315,15 @@ func localityImportance(placeType string) float64 {
 		return 0.6
 	default:
 		return 0.4
+	}
+}
+
+// Suburbs and neighbourhoods are places within a settlement, not cities themselves.
+func isSettlement(place string) bool {
+	switch place {
+	case "city", "town", "village", "hamlet", "isolated_dwelling":
+		return true
+	default:
+		return false
 	}
 }

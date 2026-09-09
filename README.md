@@ -11,13 +11,14 @@ The published container contains one statically linked binary in a rootless
 ## Features
 
 - Forward geocoding with Unicode normalization, prefix search, German spelling
-  variants, bounded typo recovery, and optional coordinate bias.
+  variants, Russian abbreviations, bounded typo recovery, and optional
+  coordinate bias.
 - Reverse geocoding using an SQLite R-tree and exact Haversine distances.
 - Named-road lookup with locality-aware disambiguation for OSM ways that lack
   `addr:city` tags.
 - Recursive discovery of any number of `.db`, `.sqlite`, and `.sqlite3` packs.
 - Pack generation from CSV/TSV, GeoJSON, NDJSON, OSM PBF, existing packs, and
-  Overture address GeoParquet.
+  Overture address GeoParquet, with optional settlement boundary enrichment.
 - Pure-Go SQLite runtime with one read-only connection per pack.
 - Graceful shutdown, liveness/readiness endpoints, and a built-in container
   healthcheck command.

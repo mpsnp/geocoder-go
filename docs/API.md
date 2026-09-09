@@ -68,7 +68,9 @@ GET /geocode?q=Altenhofgasse%2C%20Freistadt&country=AT&limit=5
 
 The fast path is normalized FTS5 prefix matching. Normalization is
 case-insensitive, removes punctuation and diacritics, and expands common German
-forms such as `ä/ae` and `ß/ss`.
+forms such as `ä/ae` and `ß/ss`. Russian tokens `жк`, `ул`, and `просп` expand
+to `жилой комплекс`, `улица`, and `проспект` in both records and queries;
+display labels are unchanged.
 
 If strict matching returns nothing, a bounded edit-distance fallback tolerates
 small mistakes and accidental word boundaries. Exact house numbers, postcodes,

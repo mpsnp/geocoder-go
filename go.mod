@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/gin-gonic/gin v1.12.0
+	github.com/paulmach/orb v0.13.0
 	github.com/qedus/osmpbf v1.2.0
 	golang.org/x/text v0.40.0
 	modernc.org/sqlite v1.53.0

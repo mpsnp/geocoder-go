@@ -38,9 +38,21 @@ Common build flags:
 | `--format` | `auto`, `csv`, `tsv`, `geojson`, `ndjson`, `pbf`, `sqlite`, or `parquet`. |
 | `--append` | Add to an existing pack and rebuild its indexes. |
 | `--strict` | Stop on the first malformed record instead of logging and skipping it. |
+| `--localities` | Optional GeoJSON settlement boundaries for missing locality tags. |
 | `--include-roads` | Include named OSM highway ways; defaults to true. |
 
 Use `--include-roads=false` for a smaller address/POI-only pack.
+
+`--localities boundaries.geojson` fills missing localities by containment of
+record points. Supply a nonempty WGS84 `FeatureCollection` of valid settlement
+`Polygon`/`MultiPolygon` features with `properties.locality` names and closed
+2D rings. Holes are excluded; conflicting overlaps remain unassigned. Existing
+localities are preserved. Antimeridian crossings are unsupported. Input is
+validated before opening the output pack, and its SHA256 is stored as
+`locality_boundaries_sha256` for that import.
+
+Rebuild from source to apply normalization or OSM classification changes to
+existing packs. With `--append`, only incoming records receive enrichment.
 
 ## OSM PBF
 
@@ -55,8 +67,11 @@ packgen inspect data/austria.sqlite.building
 ```
 
 The importer makes two PBF passes. It imports tagged addresses, named
-localities, selected named POIs, and named roads. Selected ways are represented
-by their node-average centroid. OSM relations are currently ignored.
+settlements, neighbourhoods, named residential land-use areas, selected named
+POIs, and named roads. Settlements use `kind=locality`; neighbourhoods and
+residential areas use `kind=place`. Selected ways are represented by their
+node-average centroid. OSM relations are currently ignored; settlement
+boundaries for `--localities` must be supplied separately.
 
 PBF staging tables and index builds use temporary disk space. The second pass
 uses an in-memory filter capped at 256 MiB to select coordinates for way

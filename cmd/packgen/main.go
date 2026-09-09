@@ -46,6 +46,7 @@ func run(arguments []string) error {
 }
 
 type buildFlags struct {
+	localities   string
 	output       string
 	appendMode   bool
 	format       string
@@ -93,6 +94,7 @@ func overture(arguments []string) error {
 
 func bindBuildFlags(set *flag.FlagSet) *buildFlags {
 	values := new(buildFlags)
+	set.StringVar(&values.localities, "localities", "", "GeoJSON settlement polygons used to fill missing locality tags")
 	set.StringVar(&values.output, "output", "", "output SQLite pack")
 	set.BoolVar(&values.appendMode, "append", false, "append to an existing pack and rebuild its indexes")
 	set.StringVar(&values.format, "format", "auto", "input format: auto, csv, tsv, geojson, ndjson, pbf, sqlite, parquet")
@@ -105,6 +107,13 @@ func bindBuildFlags(set *flag.FlagSet) *buildFlags {
 
 func createPack(ctx context.Context, flags buildFlags, inputs []string) (err error) {
 	started := time.Now()
+	var localities *importer.Localities
+	if flags.localities != "" {
+		localities, err = importer.LoadLocalities(flags.localities)
+		if err != nil {
+			return err
+		}
+	}
 	builder, err := pack.Create(ctx, flags.output, flags.appendMode)
 	if err != nil {
 		return err
@@ -117,8 +126,13 @@ func createPack(ctx context.Context, flags buildFlags, inputs []string) (err err
 		}
 	}()
 	options := importer.Options{
-		Format: flags.format, Source: flags.source, CountryCode: strings.ToUpper(flags.country),
+		Localities: localities, Format: flags.format, Source: flags.source, CountryCode: strings.ToUpper(flags.country),
 		IncludeRoads: flags.includeRoads, Strict: flags.strict, Logf: log.Printf,
+	}
+	if localities != nil {
+		if err := builder.SetMetadata(ctx, "locality_boundaries_sha256", localities.SHA256); err != nil {
+			return err
+		}
 	}
 	for _, input := range inputs {
 		log.Printf("importing %s", input)

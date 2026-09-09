@@ -22,3 +22,22 @@ func TestNodeFilterSizeIsBounded(t *testing.T) {
 		t.Fatalf("filter uses %d bytes, maximum is %d", size, maxNodeFilterBytes)
 	}
 }
+
+func TestResidentialAndSettlementClassification(t *testing.T) {
+	for _, tc := range []struct{ place, landuse, kind, locality string }{
+		{"city", "", "locality", "Example Place"}, {"village", "", "locality", "Example Place"},
+		{"suburb", "", "place", ""}, {"neighbourhood", "", "place", ""}, {"", "residential", "place", ""},
+	} {
+		tags := map[string]string{"name": "Example Place", "place": tc.place, "landuse": tc.landuse}
+		if !shouldImportOSM(tags, false) {
+			t.Errorf("not selected: %#v", tc)
+		}
+		record := osmRecord(tags, 0, 0, "way", 1, Options{})
+		if record.Kind != tc.kind || record.Locality != tc.locality {
+			t.Errorf("%#v: got %s / %s", tc, record.Kind, record.Locality)
+		}
+	}
+	if shouldImportOSM(map[string]string{"landuse": "residential"}, false) {
+		t.Fatal("unnamed landuse selected")
+	}
+}

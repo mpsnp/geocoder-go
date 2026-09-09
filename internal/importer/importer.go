@@ -14,6 +14,7 @@ import (
 )
 
 type Options struct {
+	Localities   *Localities
 	Format       string
 	Source       string
 	CountryCode  string
@@ -118,6 +119,7 @@ func addRecord(ctx context.Context, builder *pack.Builder, record pack.Record, o
 	if record.Source == "" {
 		record.Source = options.Source
 	}
+	options.Localities.Enrich(&record)
 	if err := builder.Add(ctx, record); err != nil {
 		if options.Strict {
 			return err
