@@ -18,6 +18,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Unicode White_Space, matching strings.TrimSpace for address eligibility.
+const addressWhitespace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
 var packExtensions = map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true}
 
 type packHandle struct {
@@ -165,9 +168,9 @@ SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postc
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
-  AND (NOT ? OR (r.kind='address' AND trim(r.street)<>'' AND trim(r.house_number)<>''))
+  AND (NOT ? OR (r.kind='address' AND trim(r.street,?)<>'' AND trim(r.house_number,?)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, perPack)
+LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
 		if err != nil {
 			return nil, fmt.Errorf("query pack %s: %w", current.Name, err)
 		}
@@ -202,7 +205,11 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddresse
 	// much broader scan.
 	if len(results) == 0 && fuzzyEligible(normalized) {
 		perPack = max(options.Limit*100, 1000)
-		for _, fuzzyQuery := range fuzzyQueryVariants(normalized) {
+		variants, err := fuzzyQueryVariants(ctx, normalized)
+		if err != nil {
+			return nil, err
+		}
+		for _, fuzzyQuery := range variants {
 			match = fuzzyFTSQuery(fuzzyQuery)
 			foundVariant := false
 			for _, current := range s.packs {
@@ -213,9 +220,9 @@ SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postc
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
-  AND (NOT ? OR (r.kind='address' AND trim(r.street)<>'' AND trim(r.house_number)<>''))
+  AND (NOT ? OR (r.kind='address' AND trim(r.street,?)<>'' AND trim(r.house_number,?)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, perPack)
+LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
 				if err != nil {
 					return nil, fmt.Errorf("fuzzy query pack %s: %w", current.Name, err)
 				}
@@ -229,7 +236,11 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddresse
 						_ = rows.Close()
 						return nil, err
 					}
-					score, ok := fuzzySearchScore(result, fuzzyQuery)
+					score, ok := fuzzySearchScore(ctx, result, fuzzyQuery)
+					if err := ctx.Err(); err != nil {
+						_ = rows.Close()
+						return nil, err
+					}
 					if !ok {
 						continue
 					}
@@ -558,7 +569,7 @@ func fuzzyFTSQuery(query string) string {
 	return strings.Join(parts, " AND ")
 }
 
-func fuzzyQueryVariants(query string) []string {
+func fuzzyQueryVariants(ctx context.Context, query string) ([]string, error) {
 	tokens := strings.Fields(query)
 	variants := []string{query}
 	seen := map[string]struct{}{query: {}}
@@ -569,6 +580,9 @@ func fuzzyQueryVariants(query string) []string {
 		var next [][]string
 		for _, current := range level {
 			for boundary := 0; boundary+1 < len(current); boundary++ {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				merged := make([]string, 0, len(current)-1)
 				merged = append(merged, current[:boundary]...)
 				merged = append(merged, current[boundary]+current[boundary+1])
@@ -584,12 +598,12 @@ func fuzzyQueryVariants(query string) []string {
 		}
 		level = next
 	}
-	return variants
+	return variants, nil
 }
 
-func fuzzySearchScore(result Result, query string) (float64, bool) {
+func fuzzySearchScore(ctx context.Context, result Result, query string) (float64, bool) {
 	queryTokens := strings.Fields(query)
-	candidateTokens := tokenVariants(strings.Fields(result.searchText))
+	candidateTokens := tokenVariants(ctx, strings.Fields(result.searchText))
 	if len(queryTokens) == 0 || len(candidateTokens) == 0 {
 		return 0, false
 	}
@@ -597,7 +611,10 @@ func fuzzySearchScore(result Result, query string) (float64, bool) {
 	for _, queryToken := range queryTokens {
 		best := len([]rune(queryToken)) + 1
 		for _, candidateToken := range candidateTokens {
-			distance := levenshtein(queryToken, candidateToken)
+			distance := levenshtein(ctx, queryToken, candidateToken)
+			if distance < 0 {
+				return 0, false
+			}
 			if distance < best {
 				best = distance
 			}
@@ -613,9 +630,12 @@ func fuzzySearchScore(result Result, query string) (float64, bool) {
 	return 40 + result.Importance*10 + averageSimilarity*40 - result.rank, true
 }
 
-func tokenVariants(tokens []string) []string {
+func tokenVariants(ctx context.Context, tokens []string) []string {
 	variants := append([]string(nil), tokens...)
 	for i := range tokens {
+		if ctx.Err() != nil {
+			return nil
+		}
 		combined := tokens[i]
 		for j := i + 1; j < len(tokens) && j <= i+2; j++ {
 			combined += tokens[j]
@@ -642,7 +662,7 @@ func allowedEdits(token string) int {
 	}
 }
 
-func levenshtein(a, b string) int {
+func levenshtein(ctx context.Context, a, b string) int {
 	left, right := []rune(a), []rune(b)
 	if len(left) > len(right) {
 		left, right = right, left
@@ -652,9 +672,15 @@ func levenshtein(a, b string) int {
 		previous[i] = i
 	}
 	for row, rightRune := range right {
+		if ctx.Err() != nil {
+			return -1
+		}
 		current := make([]int, len(left)+1)
 		current[0] = row + 1
 		for column, leftRune := range left {
+			if column%256 == 0 && ctx.Err() != nil {
+				return -1
+			}
 			cost := 0
 			if leftRune != rightRune {
 				cost = 1

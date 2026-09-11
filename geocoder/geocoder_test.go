@@ -121,6 +121,7 @@ func TestHouseAddressesOnly(t *testing.T) {
 		{SourceID: "incomplete", Kind: "address", Street: "Тверская улица", Locality: "Москва", Latitude: 55.76, Longitude: 37.61},
 	}
 	for i := 0; i < 110; i++ {
+		records = append(records, pack.Record{SourceID: fmt.Sprint("blank", i), Kind: "address", Street: "Тверская улица", HouseNumber: "\t\n\u00a0", Latitude: 55.76 + float64(i)/10000, Longitude: 37.61})
 		records = append(records, pack.Record{SourceID: fmt.Sprint(i), Kind: "place", Name: "Тверская улица", Latitude: 55.76 + float64(i)/10000, Longitude: 37.61})
 	}
 	makePack(t, filepath.Join(root, "test.sqlite"), records)
