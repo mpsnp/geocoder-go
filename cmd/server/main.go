@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GameTec-live/geocoder-go/geocoder"
 	"github.com/GameTec-live/geocoder-go/internal/api"
-	"github.com/GameTec-live/geocoder-go/internal/geocoder"
 )
 
 var (

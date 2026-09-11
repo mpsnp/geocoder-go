@@ -2,10 +2,11 @@ package geocoder_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
-	"github.com/GameTec-live/geocoder-go/internal/geocoder"
+	"github.com/GameTec-live/geocoder-go/geocoder"
 	"github.com/GameTec-live/geocoder-go/internal/pack"
 )
 
@@ -109,5 +110,38 @@ func makePack(t *testing.T, path string, records []pack.Record) {
 	}
 	if err := builder.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHouseAddressesOnly(t *testing.T) {
+	root := t.TempDir()
+	records := []pack.Record{
+		{SourceID: "house", Kind: "address", Street: "Тверская улица", HouseNumber: "10", Locality: "Москва", Latitude: 55.76, Longitude: 37.61},
+		{SourceID: "road", Kind: "road", Name: "Лесная улица", Locality: "Москва", Latitude: 55.76, Longitude: 37.61},
+		{SourceID: "incomplete", Kind: "address", Street: "Тверская улица", Locality: "Москва", Latitude: 55.76, Longitude: 37.61},
+	}
+	for i := 0; i < 110; i++ {
+		records = append(records, pack.Record{SourceID: fmt.Sprint(i), Kind: "place", Name: "Тверская улица", Latitude: 55.76 + float64(i)/10000, Longitude: 37.61})
+	}
+	makePack(t, filepath.Join(root, "test.sqlite"), records)
+	svc, err := geocoder.Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	for _, query := range []string{"Тверская", "Тверскаа"} {
+		results, err := svc.Geocode(context.Background(), geocoder.SearchOptions{Query: query, Limit: 1, HouseAddressesOnly: true})
+		if err != nil || len(results) != 1 || results[0].SourceID != "house" {
+			t.Fatalf("%s: %#v %v", query, results, err)
+		}
+	}
+	results, err := svc.Geocode(context.Background(), geocoder.SearchOptions{Query: "Лесная Москва", HouseAddressesOnly: true})
+	if err != nil || len(results) != 0 {
+		t.Fatalf("road fallback: %#v %v", results, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := svc.Geocode(ctx, geocoder.SearchOptions{Query: "Тверская", HouseAddressesOnly: true}); err == nil {
+		t.Fatal("ignored cancellation")
 	}
 }

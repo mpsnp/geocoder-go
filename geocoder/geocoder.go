@@ -20,7 +20,7 @@ import (
 
 var packExtensions = map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true}
 
-type Pack struct {
+type packHandle struct {
 	Name string
 	Path string
 	DB   *sql.DB
@@ -28,16 +28,18 @@ type Pack struct {
 
 type Service struct {
 	root  string
-	packs []*Pack
+	packs []*packHandle
 	once  sync.Once
 }
 
 type SearchOptions struct {
-	Query       string
-	CountryCode string
-	Latitude    *float64
-	Longitude   *float64
-	Limit       int
+	// HouseAddressesOnly excludes incomplete addresses, POIs and road fallback.
+	HouseAddressesOnly bool
+	Query              string
+	CountryCode        string
+	Latitude           *float64
+	Longitude          *float64
+	Limit              int
 }
 
 type ReverseOptions struct {
@@ -105,7 +107,7 @@ func Open(ctx context.Context, root string) (*Service, error) {
 	return service, nil
 }
 
-func openPack(ctx context.Context, root, path string) (*Pack, error) {
+func openPack(ctx context.Context, root, path string) (*packHandle, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -131,7 +133,7 @@ func openPack(ctx context.Context, root, path string) (*Pack, error) {
 		return nil, fmt.Errorf("missing search index: %w", err)
 	}
 	rel, _ := filepath.Rel(root, abs)
-	return &Pack{Name: filepath.ToSlash(rel), Path: abs, DB: db}, nil
+	return &packHandle{Name: filepath.ToSlash(rel), Path: abs, DB: db}, nil
 }
 
 func (s *Service) PackNames() []string {
@@ -163,12 +165,17 @@ SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postc
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
+  AND (NOT ? OR (r.kind='address' AND trim(r.street)<>'' AND trim(r.house_number)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, perPack)
+LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, perPack)
 		if err != nil {
 			return nil, fmt.Errorf("query pack %s: %w", current.Name, err)
 		}
 		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
 			result, err := scanResult(rows, current.Name)
 			if err != nil {
 				_ = rows.Close()
@@ -179,6 +186,10 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, perPack)
 			}
 			result.Score = searchScore(result, normalized, options.Latitude, options.Longitude)
 			results = append(results, result)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err
@@ -202,12 +213,17 @@ SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postc
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
+  AND (NOT ? OR (r.kind='address' AND trim(r.street)<>'' AND trim(r.house_number)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, perPack)
+LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, perPack)
 				if err != nil {
 					return nil, fmt.Errorf("fuzzy query pack %s: %w", current.Name, err)
 				}
 				for rows.Next() {
+					if err := ctx.Err(); err != nil {
+						_ = rows.Close()
+						return nil, err
+					}
 					result, err := scanResult(rows, current.Name)
 					if err != nil {
 						_ = rows.Close()
@@ -225,6 +241,10 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, perPack)
 					results = append(results, result)
 					foundVariant = true
 				}
+				if err := rows.Err(); err != nil {
+					_ = rows.Close()
+					return nil, err
+				}
 				if err := rows.Close(); err != nil {
 					return nil, err
 				}
@@ -234,7 +254,7 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, perPack)
 			}
 		}
 	}
-	if len(results) == 0 {
+	if len(results) == 0 && !options.HouseAddressesOnly {
 		roadResults, err := s.geocodeRoad(ctx, options)
 		if err != nil {
 			return nil, err
@@ -345,12 +365,20 @@ LIMIT ?`, ftsQuery(normalized), kind, countryCode, countryCode, limit)
 			return nil, fmt.Errorf("query %s records in pack %s: %w", kind, current.Name, err)
 		}
 		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
 			result, err := scanResult(rows, current.Name)
 			if err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
 			results = append(results, result)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err
@@ -450,6 +478,10 @@ LIMIT 2000`, options.Latitude+latDelta, options.Latitude-latDelta, options.Longi
 			return nil, fmt.Errorf("reverse query pack %s: %w", current.Name, err)
 		}
 		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
 			result, err := scanResult(rows, current.Name)
 			if err != nil {
 				_ = rows.Close()
@@ -460,6 +492,10 @@ LIMIT 2000`, options.Latitude+latDelta, options.Latitude-latDelta, options.Longi
 				result.Score = 1 / (1 + result.DistanceMeter)
 				results = append(results, result)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err

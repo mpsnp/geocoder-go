@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GameTec-live/geocoder-go/geocoder"
 	"github.com/GameTec-live/geocoder-go/internal/api"
-	"github.com/GameTec-live/geocoder-go/internal/geocoder"
 	"github.com/GameTec-live/geocoder-go/internal/pack"
 	"github.com/gin-gonic/gin"
 )

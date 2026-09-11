@@ -46,6 +46,14 @@ curl "http://localhost:8080/reverse?lat=48.2085&lon=16.3721&radius_m=500"
 curl "http://localhost:8080/readyz"
 ```
 
+## Go library
+
+Import `github.com/GameTec-live/geocoder-go/geocoder` to use the engine without
+an HTTP server. Open a pack directory once with `geocoder.Open(ctx, directory)`
+and close the service on shutdown. `Geocode` accepts `SearchOptions`; set
+`HouseAddressesOnly: true` to return only addresses with a street and house
+number, without road fallback. The default search behavior is unchanged.
+
 ## Container
 
 The image does not contain geographic data. Mount one or more generated packs

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/GameTec-live/geocoder-go/internal/geocoder"
+	"github.com/GameTec-live/geocoder-go/geocoder"
 	"github.com/gin-gonic/gin"
 )
 

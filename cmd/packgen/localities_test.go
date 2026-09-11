@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/GameTec-live/geocoder-go/internal/geocoder"
+	"github.com/GameTec-live/geocoder-go/geocoder"
 )
 
 func TestInvalidLocalitiesPreserveOutput(t *testing.T) {
