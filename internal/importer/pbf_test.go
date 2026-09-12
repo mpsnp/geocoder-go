@@ -41,3 +41,12 @@ func TestResidentialAndSettlementClassification(t *testing.T) {
 		t.Fatal("unnamed landuse selected")
 	}
 }
+
+func TestOSMOfficialStatus(t *testing.T) {
+	for _, tc := range []struct{ place, status, want string }{{"village", "ru:станица", "ru:станица"}, {"town", "", ""}, {"suburb", "ru:станица", ""}} {
+		r := osmRecord(map[string]string{"name": "Example", "place": tc.place, "official_status": tc.status}, 1, 1, "node", 1, Options{})
+		if r.LocalityType != tc.want {
+			t.Fatalf("%+v: %+v", tc, r)
+		}
+	}
+}

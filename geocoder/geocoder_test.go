@@ -2,6 +2,7 @@ package geocoder_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -144,5 +145,46 @@ func TestHouseAddressesOnly(t *testing.T) {
 	cancel()
 	if _, err := svc.Geocode(ctx, geocoder.SearchOptions{Query: "Тверская", HouseAddressesOnly: true}); err == nil {
 		t.Fatal("ignored cancellation")
+	}
+}
+
+func TestLocalityTypeAndLegacyPacks(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "pack.sqlite")
+			makePack(t, path, []pack.Record{{Kind: "address", Street: "Тверская", HouseNumber: "10", Locality: "Example", LocalityType: "ru:станица", Latitude: 1, Longitude: 1}})
+			if legacy {
+				db, err := sql.Open("sqlite", path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.Exec(`ALTER TABLE records DROP COLUMN locality_type; PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+					t.Fatal(err)
+				}
+				if err = db.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc, err := geocoder.Open(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer svc.Close()
+			want := "ru:станица"
+			if legacy {
+				want = ""
+			}
+			for _, q := range []string{"Тверская", "Тверскаа"} {
+				rows, err := svc.Geocode(context.Background(), geocoder.SearchOptions{Query: q, HouseAddressesOnly: true})
+				if err != nil || len(rows) != 1 || rows[0].LocalityType != want {
+					t.Fatalf("%s: %#v %v", q, rows, err)
+				}
+			}
+			rows, err := svc.Reverse(context.Background(), geocoder.ReverseOptions{Latitude: 1, Longitude: 1})
+			if err != nil || len(rows) != 1 || rows[0].LocalityType != want {
+				t.Fatalf("reverse: %#v %v", rows, err)
+			}
+		})
 	}
 }

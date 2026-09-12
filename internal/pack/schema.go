@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS records (
     unit TEXT NOT NULL DEFAULT '',
     postcode TEXT NOT NULL DEFAULT '',
     locality TEXT NOT NULL DEFAULT '',
+    locality_type TEXT NOT NULL DEFAULT '',
     district TEXT NOT NULL DEFAULT '',
     region TEXT NOT NULL DEFAULT '',
     country_code TEXT NOT NULL DEFAULT '',

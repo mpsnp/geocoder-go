@@ -15,9 +15,10 @@ import (
 )
 
 type localityPolygon struct {
-	name    string
-	polygon orb.Polygon
-	bound   orb.Bound
+	name           string
+	officialStatus string
+	polygon        orb.Polygon
+	bound          orb.Bound
 }
 
 // Localities contains build-time WGS84 settlement boundaries, never runtime data.
@@ -38,7 +39,8 @@ func LoadLocalities(path string) (*Localities, error) {
 		Features []struct {
 			Type       string `json:"type"`
 			Properties struct {
-				Locality string `json:"locality"`
+				Locality       string `json:"locality"`
+				OfficialStatus string `json:"official_status"`
 			} `json:"properties"`
 			Geometry struct {
 				Type        string          `json:"type"`
@@ -83,7 +85,7 @@ func LoadLocalities(path string) (*Localities, error) {
 			if err != nil {
 				return nil, fmt.Errorf("localities feature %d: %w", i, err)
 			}
-			result.polygons = append(result.polygons, localityPolygon{name, polygon, polygon.Bound()})
+			result.polygons = append(result.polygons, localityPolygon{name, feature.Properties.OfficialStatus, polygon, polygon.Bound()})
 		}
 	}
 	return result, nil
@@ -118,14 +120,15 @@ func localityGeometry(coordinates [][][]float64) (orb.Polygon, error) {
 	return polygon, nil
 }
 
-// Enrich fills only absent locality tags. Conflicting overlaps remain unassigned.
+// Enrich fills absent locality names and explicit types for matching names. Conflicting overlaps remain unassigned.
 // Polygon holes (including their edges) are excluded; outer edges are included.
 func (l *Localities) Enrich(record *pack.Record) {
-	if l == nil || strings.TrimSpace(record.Locality) != "" {
+	if l == nil {
 		return
 	}
 	point := orb.Point{record.Longitude, record.Latitude}
-	name := ""
+	name, status := "", ""
+	conflictingStatus := false
 	for _, boundary := range l.polygons {
 		if !boundary.bound.Contains(point) || !planar.PolygonContains(boundary.polygon, point) {
 			continue
@@ -134,6 +137,23 @@ func (l *Localities) Enrich(record *pack.Record) {
 			return
 		}
 		name = boundary.name
+		if status != "" && boundary.officialStatus != "" && status != boundary.officialStatus {
+			conflictingStatus = true
+		}
+		if boundary.officialStatus != "" {
+			status = boundary.officialStatus
+		}
 	}
-	record.Locality = name
+	if name == "" {
+		return
+	}
+	if existing := strings.TrimSpace(record.Locality); existing != "" && existing != name {
+		return
+	}
+	if strings.TrimSpace(record.Locality) == "" {
+		record.Locality = name
+	}
+	if record.LocalityType == "" && !conflictingStatus {
+		record.LocalityType = status
+	}
 }

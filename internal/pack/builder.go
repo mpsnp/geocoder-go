@@ -45,6 +45,17 @@ func Create(ctx context.Context, path string, appendMode bool) (*Builder, error)
 		_ = db.Close()
 		return nil, fmt.Errorf("create pack schema: %w", err)
 	}
+	hasType, err := HasLocalityType(ctx, db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if !hasType {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE records ADD COLUMN locality_type TEXT NOT NULL DEFAULT ''`); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
 	if _, err = db.ExecContext(ctx, `INSERT INTO metadata(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.Itoa(SchemaVersion)); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -57,9 +68,9 @@ func Create(ctx context.Context, path string, appendMode bool) (*Builder, error)
 	stmt, err := tx.PrepareContext(ctx, `
 INSERT OR IGNORE INTO records(
   source, source_id, kind, name, house_number, street, unit, postcode,
-  locality, district, region, country_code, country, lat, lon, importance,
+  locality, locality_type, district, region, country_code, country, lat, lon, importance,
   aliases, display_name, search_text, fingerprint
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		_ = tx.Rollback()
 		_ = db.Close()
@@ -76,7 +87,7 @@ func (b *Builder) Add(ctx context.Context, record Record) error {
 	aliases, _ := json.Marshal(record.Aliases)
 	result, err := b.insert.ExecContext(ctx,
 		record.Source, record.SourceID, record.Kind, record.Name, record.HouseNumber,
-		record.Street, record.Unit, record.Postcode, record.Locality, record.District,
+		record.Street, record.Unit, record.Postcode, record.Locality, record.LocalityType, record.District,
 		record.Region, record.CountryCode, record.Country, record.Latitude, record.Longitude,
 		record.Importance, string(aliases), record.DisplayName, record.SearchText, record.Fingerprint,
 	)
@@ -157,3 +168,10 @@ func (b *Builder) Path() string          { return b.path }
 func (b *Builder) Stats() (int64, int64) { return b.inserted, b.skipped }
 func (b *Builder) DB() *sql.DB           { return b.db }
 func (b *Builder) Tx() *sql.Tx           { return b.tx }
+
+// HasLocalityType detects the optional additive field in version-1 packs.
+func HasLocalityType(ctx context.Context, db *sql.DB) (bool, error) {
+	var count int
+	err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('records') WHERE name='locality_type'`).Scan(&count)
+	return count > 0, err
+}

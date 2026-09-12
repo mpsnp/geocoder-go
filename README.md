@@ -144,3 +144,11 @@ INSPIRE, national datasets, and business data may carry additional obligations.
 The `source` field is preserved in every result to support attribution.
 
 geocoder-go itself is licensed under the MIT License and free for anyone to use.
+
+Settlement `locality_type` preserves the raw OSM `official_status` (for example,
+`ru:станица`); it is never inferred from `place=town/village`. Locality GeoJSON
+may supply `properties.official_status`: enrichment fills the type when the
+polygon name matches an existing locality or supplies an absent locality, without
+overwriting conflicting names/types. New packs store this optional column;
+legacy version-1 packs remain readable with an empty type and gain the column
+when opened for append. Public geocoder results expose `locality_type` when known.

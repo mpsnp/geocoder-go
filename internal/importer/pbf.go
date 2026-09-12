@@ -275,8 +275,13 @@ func osmRecord(tags map[string]string, lat, lon float64, objectType string, id i
 	if locality == "" && kind == "locality" {
 		locality = tags["name"]
 	}
+	localityType := ""
+	if kind == "locality" {
+		localityType = tags["official_status"]
+	}
 	return pack.Record{
-		Source: options.Source, SourceID: "osm:" + objectType + ":" + strconv.FormatInt(id, 10), Kind: kind,
+		LocalityType: localityType,
+		Source:       options.Source, SourceID: "osm:" + objectType + ":" + strconv.FormatInt(id, 10), Kind: kind,
 		Name: tags["name"], HouseNumber: tags["addr:housenumber"], Street: firstTag(tags, "addr:street", "addr:place"), Unit: tags["addr:unit"],
 		Postcode: tags["addr:postcode"], Locality: locality, District: firstTag(tags, "addr:district", "addr:suburb"),
 		Region: tags["addr:state"], CountryCode: firstTag(tags, "addr:country", "ISO3166-1:alpha2"),

@@ -25,8 +25,16 @@ func importPack(ctx context.Context, builder *pack.Builder, path string, options
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	hasType, err := pack.HasLocalityType(ctx, db)
+	if err != nil {
+		return err
+	}
+	typeSQL := "''"
+	if hasType {
+		typeSQL = "locality_type"
+	}
 	rows, err := db.QueryContext(ctx, `
-SELECT source,source_id,kind,name,house_number,street,unit,postcode,locality,district,
+SELECT source,source_id,kind,name,house_number,street,unit,postcode,locality,`+typeSQL+`,district,
        region,country_code,country,lat,lon,importance,aliases,display_name
 FROM records`)
 	if err != nil {
@@ -37,7 +45,7 @@ FROM records`)
 		var record pack.Record
 		var aliases string
 		if err := rows.Scan(&record.Source, &record.SourceID, &record.Kind, &record.Name, &record.HouseNumber,
-			&record.Street, &record.Unit, &record.Postcode, &record.Locality, &record.District, &record.Region,
+			&record.Street, &record.Unit, &record.Postcode, &record.Locality, &record.LocalityType, &record.District, &record.Region,
 			&record.CountryCode, &record.Country, &record.Latitude, &record.Longitude, &record.Importance,
 			&aliases, &record.DisplayName); err != nil {
 			return err

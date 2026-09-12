@@ -24,9 +24,10 @@ const addressWhitespace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003
 var packExtensions = map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true}
 
 type packHandle struct {
-	Name string
-	Path string
-	DB   *sql.DB
+	Name            string
+	localityTypeSQL string
+	Path            string
+	DB              *sql.DB
 }
 
 type Service struct {
@@ -62,6 +63,7 @@ type Result struct {
 	Street        string   `json:"street,omitempty"`
 	Unit          string   `json:"unit,omitempty"`
 	Postcode      string   `json:"postcode,omitempty"`
+	LocalityType  string   `json:"locality_type,omitempty"`
 	Locality      string   `json:"locality,omitempty"`
 	District      string   `json:"district,omitempty"`
 	Region        string   `json:"region,omitempty"`
@@ -135,8 +137,17 @@ func openPack(ctx context.Context, root, path string) (*packHandle, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("missing search index: %w", err)
 	}
+	hasType, err := pack.HasLocalityType(ctx, db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	typeSQL := "''"
+	if hasType {
+		typeSQL = "r.locality_type"
+	}
 	rel, _ := filepath.Rel(root, abs)
-	return &packHandle{Name: filepath.ToSlash(rel), Path: abs, DB: db}, nil
+	return &packHandle{Name: filepath.ToSlash(rel), Path: abs, DB: db, localityTypeSQL: typeSQL}, nil
 }
 
 func (s *Service) PackNames() []string {
@@ -161,16 +172,16 @@ func (s *Service) Geocode(ctx context.Context, options SearchOptions) ([]Result,
 	perPack := max(options.Limit*20, 100)
 	var results []Result
 	for _, current := range s.packs {
-		rows, err := current.DB.QueryContext(ctx, `
+		rows, err := current.DB.QueryContext(ctx, strings.ReplaceAll(`
 SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postcode,
-       r.locality,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
+       r.locality,LOCALITY_TYPE,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
        r.aliases,r.display_name,r.search_text,bm25(records_fts)
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
   AND (NOT ? OR (r.kind='address' AND trim(r.street,?)<>'' AND trim(r.house_number,?)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
+LIMIT ?`, "LOCALITY_TYPE", current.localityTypeSQL), match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
 		if err != nil {
 			return nil, fmt.Errorf("query pack %s: %w", current.Name, err)
 		}
@@ -213,16 +224,16 @@ LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddresse
 			match = fuzzyFTSQuery(fuzzyQuery)
 			foundVariant := false
 			for _, current := range s.packs {
-				rows, err := current.DB.QueryContext(ctx, `
+				rows, err := current.DB.QueryContext(ctx, strings.ReplaceAll(`
 SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postcode,
-       r.locality,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
+       r.locality,LOCALITY_TYPE,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
        r.aliases,r.display_name,r.search_text,bm25(records_fts)
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND (?='' OR r.country_code=?)
   AND (NOT ? OR (r.kind='address' AND trim(r.street,?)<>'' AND trim(r.house_number,?)<>''))
 ORDER BY bm25(records_fts)
-LIMIT ?`, match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
+LIMIT ?`, "LOCALITY_TYPE", current.localityTypeSQL), match, options.CountryCode, options.CountryCode, options.HouseAddressesOnly, addressWhitespace, addressWhitespace, perPack)
 				if err != nil {
 					return nil, fmt.Errorf("fuzzy query pack %s: %w", current.Name, err)
 				}
@@ -316,6 +327,7 @@ func (s *Service) geocodeRoad(ctx context.Context, options SearchOptions) ([]Res
 					continue
 				}
 				road.Locality = localityName
+				road.LocalityType = locality.LocalityType
 				if road.District == "" {
 					road.District = locality.District
 				}
@@ -363,15 +375,15 @@ func (s *Service) queryKind(ctx context.Context, query, countryCode, kind string
 	}
 	var results []Result
 	for _, current := range s.packs {
-		rows, err := current.DB.QueryContext(ctx, `
+		rows, err := current.DB.QueryContext(ctx, strings.ReplaceAll(`
 SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postcode,
-       r.locality,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
+       r.locality,LOCALITY_TYPE,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
        r.aliases,r.display_name,r.search_text,bm25(records_fts)
 FROM records_fts
 JOIN records r ON r.id=records_fts.rowid
 WHERE records_fts MATCH ? AND r.kind=? AND (?='' OR r.country_code=?)
 ORDER BY bm25(records_fts)
-LIMIT ?`, ftsQuery(normalized), kind, countryCode, countryCode, limit)
+LIMIT ?`, "LOCALITY_TYPE", current.localityTypeSQL), ftsQuery(normalized), kind, countryCode, countryCode, limit)
 		if err != nil {
 			return nil, fmt.Errorf("query %s records in pack %s: %w", kind, current.Name, err)
 		}
@@ -475,15 +487,15 @@ func (s *Service) Reverse(ctx context.Context, options ReverseOptions) ([]Result
 	lonDelta := options.RadiusMeter / (111320.0 * math.Abs(lonScale))
 	var results []Result
 	for _, current := range s.packs {
-		rows, err := current.DB.QueryContext(ctx, `
+		rows, err := current.DB.QueryContext(ctx, strings.ReplaceAll(`
 SELECT r.source,r.source_id,r.kind,r.name,r.house_number,r.street,r.unit,r.postcode,
-       r.locality,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
+       r.locality,LOCALITY_TYPE,r.district,r.region,r.country_code,r.country,r.lat,r.lon,r.importance,
        r.aliases,r.display_name,r.search_text,0.0
 FROM records_rtree x
 JOIN records r ON r.id=x.id
 WHERE x.min_lat<=? AND x.max_lat>=? AND x.min_lon<=? AND x.max_lon>=?
 ORDER BY ((r.lat-?)*(r.lat-?)) + ((r.lon-?)*(r.lon-?)*?)
-LIMIT 2000`, options.Latitude+latDelta, options.Latitude-latDelta, options.Longitude+lonDelta, options.Longitude-lonDelta,
+LIMIT 2000`, "LOCALITY_TYPE", current.localityTypeSQL), options.Latitude+latDelta, options.Latitude-latDelta, options.Longitude+lonDelta, options.Longitude-lonDelta,
 			options.Latitude, options.Latitude, options.Longitude, options.Longitude, lonScale*lonScale)
 		if err != nil {
 			return nil, fmt.Errorf("reverse query pack %s: %w", current.Name, err)
@@ -527,7 +539,7 @@ func scanResult(row scanner, packName string) (Result, error) {
 	var result Result
 	var aliases string
 	err := row.Scan(&result.Source, &result.SourceID, &result.Kind, &result.Name, &result.HouseNumber,
-		&result.Street, &result.Unit, &result.Postcode, &result.Locality, &result.District,
+		&result.Street, &result.Unit, &result.Postcode, &result.Locality, &result.LocalityType, &result.District,
 		&result.Region, &result.CountryCode, &result.Country, &result.Latitude, &result.Longitude,
 		&result.Importance, &aliases, &result.DisplayName, &result.searchText, &result.rank)
 	if err != nil {

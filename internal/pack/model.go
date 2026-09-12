@@ -13,26 +13,27 @@ const SchemaVersion = 1
 
 // Record is the source-neutral representation stored in every pack.
 type Record struct {
-	Source      string   `json:"source,omitempty"`
-	SourceID    string   `json:"source_id,omitempty"`
-	Kind        string   `json:"kind"`
-	Name        string   `json:"name,omitempty"`
-	HouseNumber string   `json:"house_number,omitempty"`
-	Street      string   `json:"street,omitempty"`
-	Unit        string   `json:"unit,omitempty"`
-	Postcode    string   `json:"postcode,omitempty"`
-	Locality    string   `json:"locality,omitempty"`
-	District    string   `json:"district,omitempty"`
-	Region      string   `json:"region,omitempty"`
-	CountryCode string   `json:"country_code,omitempty"`
-	Country     string   `json:"country,omitempty"`
-	Latitude    float64  `json:"lat"`
-	Longitude   float64  `json:"lon"`
-	Importance  float64  `json:"importance,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
-	DisplayName string   `json:"display_name,omitempty"`
-	SearchText  string   `json:"-"`
-	Fingerprint string   `json:"-"`
+	Source       string   `json:"source,omitempty"`
+	SourceID     string   `json:"source_id,omitempty"`
+	Kind         string   `json:"kind"`
+	Name         string   `json:"name,omitempty"`
+	HouseNumber  string   `json:"house_number,omitempty"`
+	Street       string   `json:"street,omitempty"`
+	Unit         string   `json:"unit,omitempty"`
+	Postcode     string   `json:"postcode,omitempty"`
+	LocalityType string   `json:"locality_type,omitempty"`
+	Locality     string   `json:"locality,omitempty"`
+	District     string   `json:"district,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	CountryCode  string   `json:"country_code,omitempty"`
+	Country      string   `json:"country,omitempty"`
+	Latitude     float64  `json:"lat"`
+	Longitude    float64  `json:"lon"`
+	Importance   float64  `json:"importance,omitempty"`
+	Aliases      []string `json:"aliases,omitempty"`
+	DisplayName  string   `json:"display_name,omitempty"`
+	SearchText   string   `json:"-"`
+	Fingerprint  string   `json:"-"`
 }
 
 func (r *Record) Prepare() error {

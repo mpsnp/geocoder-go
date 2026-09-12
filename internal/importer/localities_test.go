@@ -3,6 +3,7 @@ package importer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/GameTec-live/geocoder-go/internal/pack"
@@ -78,5 +79,39 @@ func TestLocalitiesRejectMalformedGeometry(t *testing.T) {
 		if _, err := LoadLocalities(boundaryFile(t, geometry)); err == nil {
 			t.Errorf("accepted %s", geometry)
 		}
+	}
+}
+
+func TestOfficialLocalityType(t *testing.T) {
+	path := boundaryFile(t, `{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}`)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.ReplaceAll(string(data), `"locality":"Example City"`, `"locality":"Example City","official_status":"ru:станица"`))
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	boundaries, err := LoadLocalities(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ locality, initial, wantName, wantType string }{
+		{"", "", "Example City", "ru:станица"}, {"Example City", "", "Example City", "ru:станица"}, {"Other", "", "Other", ""}, {"Example City", "ru:город", "Example City", "ru:город"},
+	} {
+		r := pack.Record{Locality: tc.locality, LocalityType: tc.initial, Latitude: 1, Longitude: 1}
+		boundaries.Enrich(&r)
+		if r.Locality != tc.wantName || r.LocalityType != tc.wantType {
+			t.Fatalf("%+v: %+v", tc, r)
+		}
+	}
+	// Conflicting official types for the same polygon name must not depend on order.
+	other := boundaries.polygons[0]
+	other.officialStatus = "ru:город"
+	boundaries.polygons = append(boundaries.polygons, other)
+	r := pack.Record{Latitude: 1, Longitude: 1}
+	boundaries.Enrich(&r)
+	if r.LocalityType != "" {
+		t.Fatalf("conflicting type: %+v", r)
 	}
 }
